@@ -28,7 +28,9 @@
 | 地址 | 0x68（SDO 接地） | — |
 | 功耗 | ~130μA | ~3.5mA |
 
-**初版配置**：Normal Mode，ODR=100Hz，加速度计 ±4g，陀螺仪 ±500°/s。
+**当前配置**：Normal Mode，ODR=100Hz，加速度计 ±4g，陀螺仪 100Hz。
+
+**驱动库**：使用 `sparkfun/SparkFun BMI270 Arduino Library`（基于 Bosch 官方 Sensor API 封装，自动处理 8KB 配置固件加载）。
 
 ### 显示屏：1.47" IPS TFT（172×320）
 
@@ -59,6 +61,7 @@ ESP32-S3          BMI270          ST7789V3
 ─────────────────────────────────────────────
 GPIO6  ────────── SDA
 GPIO7  ────────── SCL
+GPIO1  ────────── INT
 GPIO10 ────────────────────────── CS
 GPIO11 ────────────────────────── MOSI
 GPIO12 ────────────────────────── SCK
@@ -68,7 +71,11 @@ GPIO8  ────────────────────────�
 GND    ────────── GND ─────────── GND
 ```
 
+> **BMI270 双 GND 说明**：模块上有两个 GND 引脚，内部已短接。实际接线时任选一个接 GND 即可，另一个悬空。
+>
 > **GPIO9 禁用说明**：ESP32-S3 的 GPIO9 为 SPI2（FSPI）的 FSPIHD 引脚。在 SPI 通信时该引脚可能被控制器抢占，导致程序崩溃或背光异常。背光建议直接硬件常亮，不占 GPIO。
+>
+> **3.3V 分路**：ESP32-S3 Super Mini 只有一个 3.3V 引脚，需用面包板电源轨或一拖三杜邦线给 BMI270 和 ST7789V3 并联供电。总电流 < 100mA，远低于 LDO 极限。
 
 ---
 
@@ -93,26 +100,48 @@ pio device monitor --baud 115200
 
 ---
 
+## BMI270 串口调试
+
+上电后串口会输出以下信息：
+
+```
+BMI270 连接成功
+BMI270 配置完成：Accel 100Hz/4g，Gyro 100Hz
+ACC: 0.012 -0.008 1.023  GYR: 0.500 -1.200 0.300
+ACC: 0.010 -0.005 1.018  GYR: -0.200 0.800 -0.100
+...
+```
+
+| 字段 | 说明 | 静止平放时预期 |
+|------|------|---------------|
+| `ACC X/Y/Z` | 加速度，单位 **g** | X≈0, Y≈0, **Z≈1.0**（重力） |
+| `GYR X/Y/Z` | 角速度，单位 **°/s** | 三轴都 ≈0（±2°/s 内正常） |
+
+**快速验证**：
+- 平放桌面 → Z ≈ 1g，其他 ≈ 0
+- 绕 X 轴翻转（前后点头）→ Y/Z 变化
+- 绕 Z 轴旋转（左右摇头）→ GYR Z 有明显数值
+
+**初始化失败**：若看到 `BMI270 初始化失败，状态码: -2`，表示 I2C 通信失败：
+1. 检查 SDA/SCL 接线（GPIO6/7）
+2. 确认 GND 共地
+3. 尝试更换 I2C 地址：`BMI2_I2C_SEC_ADDR`（0x69）
+
+---
+
 ## 项目结构与重要文件
 
 ```
 .
 ├── platformio.ini              # PlatformIO 配置：库依赖、编译参数、上传端口
-│                               #   lib_deps: Adafruit GFX + ST7789 库
+│                               #   lib_deps: Adafruit GFX + ST7789 + SparkFun BMI270
 │                               #   upload_port: COM13（按实际修改）
 │
 ├── src/
-│   ├── main.cpp                # ⭐ 主程序入口。当前为纯白显示验证状态。
-│   │                           #   Phase 2 预留区：BMI270 初始化、姿态解算、
-│   │                           #   运动检测、点阵绘制 TODO 已标注。
-│   ├── bmi270_driver.cpp/h     # BMI270 C++ 封装类。提供 begin()/calibrate()/update()
-│   │                           #   和 getAccel()/getGyro() 接口。
-│   └── bmi270_arduino_interface.cpp/h
-│                               # Bosch 官方 C 库的 Arduino I2C 适配层。
-│                               #   实现 bmi2_i2c_read/write/delay_us。
-│
-├── lib/bmi270_sensor_api/      # Bosch BMI270 官方 C 驱动（不可修改）
-│   ├── bmi2.c/h, bmi270.c/h, bmi2_defs.h
+│   └── main.cpp                # ⭐ 主程序入口。当前状态：
+│                               #   - TFT 纯白显示验证通过
+│                               #   - BMI270 六轴数据读取正常（100Hz）
+│                               #   - Phase 2 算法预留区 TODO 已标注
 │
 ├── docs/
 │   └── 项目设计报告.md          # ⭐ 系统架构、算法设计、开发计划、KPI、风险分析
@@ -124,9 +153,12 @@ pio device monitor --baud 115200
 │       ├── platformio.ini      #   历史配置
 │       └── TFT_Setup.h.bak     #   TFT_eSPI 历史配置（已弃用）
 │
+├── lib/bmi270_sensor_api/      # [已弃用] Bosch 官方 C 驱动（旧版自定义封装）
+│                               #   现改用 SparkFun BMI270 Arduino Library
+│
 ├── main_tftespi_backup.cpp     # TFT_eSPI 库的测试代码（已弃用，保留参考）
 ├── include/TFT_Setup.h         # TFT_eSPI 库的历史配置文件（已弃用）
-└── download_bmi270_api.sh      # 下载 Bosch 官方 API 的脚本
+└── download_bmi270_api.sh      # 下载 Bosch 官方 API 的脚本（旧版）
 ```
 
 ---
@@ -155,17 +187,19 @@ pio device monitor --baud 115200
 
 ## 开发路线图
 
-### Phase 1：硬件验证（进行中）
+### Phase 1：硬件验证（已完成）
 
 - [x] TFT 驱动验证（Adafruit 库，172×320 纯白显示正常）
-- [x] BMI270 驱动框架（Bosch 官方 API + Arduino I2C 适配层）
-- [ ] **BMI270 数据读取与标定**（`bmi270_driver.begin()` 验证 + 2秒静止标定）
+- [x] BMI270 驱动集成（SparkFun 库，I2C 六轴数据读取正常）
+- [x] BMI270 参数配置（100Hz/4g/Normal Mode）
+- [ ] 上电静止标定（2 秒零偏采样）
 - [ ] 45° 折射镜片光路验证
 
-### Phase 2：算法核心
+### Phase 2：算法核心（进行中）
 
-- [ ] 互补滤波姿态解算
-- [ ] 纵向加速度提取与运动状态检测
+- [ ] 零偏补偿与低通滤波
+- [ ] 互补滤波姿态解算（pitch/roll）
+- [ ] 世界坐标系纵向加速度提取与运动状态检测
 - [ ] 点阵偏移生成算法与 TFT 实时显示
 - [ ] 车内路测与参数调优（K、alpha、阈值）
 
@@ -186,8 +220,30 @@ pio device monitor --baud 115200
 | 烧录端口拒绝访问 | `PermissionError(13)` | 串口监控占用了 COM 口 | 关闭 `pio device monitor` 再烧录 |
 | 172×320 画面偏移 | 画面偏左或只显示一半 | ST7789 物理显存 240×320，有效画面需偏移 34 列 | `tft.init(172, 320)` 由 Adafruit 库自动处理 |
 | 串口无输出 | 黑屏且无日志 | `Serial.begin()` 后 USB CDC 未就绪 | 代码已加 `while(!Serial)` 等待 |
+| BMI270 初始化失败 | 串口输出状态码 -2 | I2C 通信失败（接线/地址/共地） | 检查 GPIO6/7 接线，尝试地址 0x69 |
+| 只有一个 3.3V 引脚 | 无法同时给多个设备供电 | Super Mini 引脚少 | 用面包板/一拖三杜邦线并联，总电流 < 100mA |
 
 ---
 
-*文档版本：v1.0*
-*更新日期：2026-05-06*
+## 更新日志
+
+### v1.1（2026-05-07）
+
+- **新增**：BMI270 六轴传感器驱动集成
+  - 使用 `sparkfun/SparkFun BMI270 Arduino Library`（PlatformIO 自动下载）
+  - I2C 接口：SDA=GPIO6，SCL=GPIO7，INT=GPIO1
+  - 配置：Accel 100Hz/±4g，Gyro 100Hz，Normal Mode
+  - 六轴原始数据串口输出（调试用）
+- **变更**：弃用旧版 `lib/bmi270_sensor_api/` 自定义驱动，改为 SparkFun 官方封装
+- **文档**：更新引脚接线表、新增 BMI270 调试说明、更新开发路线图
+
+### v1.0（2026-05-06）
+
+- 项目初始化
+- TFT 驱动验证通过（Adafruit 库，172×320 纯白显示）
+- 旧版 BMI270 自定义驱动框架（Bosch API + Arduino I2C 适配层）
+
+---
+
+*文档版本：v1.1*
+*更新日期：2026-05-07*
