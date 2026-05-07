@@ -1,0 +1,58 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+.ycm_extra_conf.py
+compile_commands.json
+
+# Build outputs
+build/
+out/
+dist/
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.o
+*.a
+*.d
+
+# Arduino
+*.eep
+*.tmp
+
+# IDE / Editor
+.vscode/
+.idea/
+.claude/
+.obsidian/
+*.swp
+*.swo
+*~
+*.bak
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Docs temp files
+~$*.docx
+~$*.xlsx
+~$*.pptx
