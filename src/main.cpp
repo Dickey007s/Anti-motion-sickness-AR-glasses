@@ -32,9 +32,10 @@ const uint8_t BMI_ADDR = BMI2_I2C_PRIM_ADDR; // 0x68
 // TODO Phase 2: 定义加速度阈值 ACCEL_THRESHOLD = 0.1g
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial) { delay(10); }
-  delay(300);
+  // ESP32-S3 使用 USBSerial/JTAG 控制器，必须用 USBSerial 而非 Serial
+  USBSerial.begin(115200);
+  delay(500);
+  USBSerial.println("\n=== ESP32-S3 启动 ===");
 
   // ---------- SPI 初始化 ----------
   SPI.begin(12, -1, 11, -1);
@@ -45,11 +46,9 @@ void setup() {
   delay(120);
   tft.sendCommand(0x29);  // Display ON
   delay(20);
-
   tft.setRotation(0);
-
-  // ---------- 最简纯白显示（Phase 1 验证通过）----------
   tft.fillScreen(ST77XX_WHITE);
+  USBSerial.println("TFT 初始化完成");
 
   // ===================== I2C 初始化 =====================
   Wire.begin(BMI_SDA, BMI_SCL);
@@ -57,10 +56,9 @@ void setup() {
   // ===================== BMI270 初始化 =====================
   int8_t bmiStatus = bmi.beginI2C(BMI_ADDR);
   if (bmiStatus != BMI2_OK) {
-    Serial.printf("BMI270 初始化失败，状态码: %d\n", bmiStatus);
-    // 不阻塞，继续运行，后续 loop 中会跳过 BMI270 读取
+    USBSerial.printf("BMI270 初始化失败，状态码: %d\n", bmiStatus);
   } else {
-    Serial.println("BMI270 连接成功");
+    USBSerial.println("BMI270 连接成功");
 
     // 配置加速度计：100Hz，±4g
     bmi2_sens_config accConfig;
@@ -83,53 +81,25 @@ void setup() {
     uint8_t sensList[2] = {BMI2_ACCEL, BMI2_GYRO};
     bmi.enableFeatures(sensList, 2);
 
-    Serial.println("BMI270 配置完成：Accel 100Hz/4g，Gyro 100Hz");
+    USBSerial.println("BMI270 配置完成：Accel 100Hz/4g，Gyro 100Hz");
   }
 
   // 配置中断引脚（预留，暂未使用中断）
   pinMode(BMI_INT, INPUT);
 
-  // TODO: 上电静止标定 2 秒，采样 200 组求零偏
+  USBSerial.println("=== 开始输出六轴传感器数据 ===\n");
 }
 
 void loop() {
-  // ===================== Phase 2 预留区：主循环 10ms 周期 (100Hz) =====================
-
   // 读取 BMI270 加速度计 + 陀螺仪数据
   bmi.getSensorData();
 
-  // 打印调试数据（调试用，后续可注释掉）
-  Serial.printf("ACC: %.3f %.3f %.3f  GYR: %.3f %.3f %.3f\n",
-                bmi.data.accelX, bmi.data.accelY, bmi.data.accelZ,
-                bmi.data.gyroX, bmi.data.gyroY, bmi.data.gyroZ);
+  // 打印六轴数据
+  USBSerial.printf("ACC: %.3f %.3f %.3f  GYR: %.3f %.3f %.3f\n",
+                   bmi.data.accelX, bmi.data.accelY, bmi.data.accelZ,
+                   bmi.data.gyroX, bmi.data.gyroY, bmi.data.gyroZ);
 
-  // TODO: 零偏补偿与低通滤波：a_filtered = 0.3 * a_raw + 0.7 * a_filtered_prev
+  // TODO Phase 2: 零偏补偿、低通滤波、姿态解算、点阵绘制
 
-  // TODO: 互补滤波姿态解算
-  //   pitch = 0.98 * (pitch + gyr_y * dt) + 0.02 * atan2(-acc_x, sqrt(acc_y^2 + acc_z^2))
-  //   roll  = 0.98 * (roll  + gyr_x * dt) + 0.02 * atan2(acc_y, acc_z)
-
-  // TODO: 世界坐标系纵向加速度提取
-  //   a_x_world = a_x * cos(pitch) + a_z * sin(pitch)
-
-  // TODO: 运动状态检测
-  //   if a_x_world >  ACCEL_THRESHOLD: state = ACCELERATING
-  //   if a_x_world < -BRAKE_THRESHOLD: state = BRAKING
-  //   else:                            state = CRUISING
-
-  // TODO: 点阵目标偏移量计算
-  //   target_offset = -K * a_x_world
-
-  // TODO: 一阶平滑滤波
-  //   offset = offset + alpha * (target_offset - offset)
-
-  // TODO: 限幅保护
-  //   offset = clamp(offset, -MAX_OFFSET, MAX_OFFSET)
-
-  // TODO: TFT 绘制点阵帧
-  //   1. 清屏（fillScreen ST77XX_BLACK 或深色背景）
-  //   2. 绘制 4x5 点阵，每点 x 坐标 += offset
-  //   3. 可选：根据状态改变点阵颜色（加速红色 / 减速绿色 / 匀速白色）
-
-  delay(10);  // 100Hz 周期控制
+  delay(200);  // 5Hz 输出，避免刷屏
 }

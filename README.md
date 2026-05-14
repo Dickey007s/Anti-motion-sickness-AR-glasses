@@ -90,13 +90,17 @@ pio run
 # 烧录（端口在 platformio.ini 中配置为 COM13，可按实际情况修改）
 pio run --target upload
 
-# 串口监控（115200，程序内有 while(!Serial) 等待连接）
+# 串口监控（115200，ESP32-S3 使用 USBSerial/JTAG）
 pio device monitor --baud 115200
 ```
 
 **烧录失败排查**：
 - `PermissionError(13)` → 串口被占用，关闭 `pio device monitor` 后再烧录
 - `Could not open COMx` → 检查设备管理器中的 COM 口号，更新 `platformio.ini` 中的 `upload_port`
+
+**串口输出排查**：
+- 有输出但无启动日志 → `setup()` 输出时串口监视器尚未打开，属正常；`loop()` 中的数据输出不受影响
+- 完全无输出 → 检查代码是否使用了 `USBSerial`（ESP32-S3 USB Serial/JTAG 必须使用 `USBSerial`，不能用 `Serial`）
 
 ---
 
@@ -219,7 +223,7 @@ ACC: 0.010 -0.005 1.018  GYR: -0.200 0.800 -0.100
 | GPIO9 背光冲突 | 程序启动后背光熄灭/重启 | GPIO9 为 SPI2 FSPIHD，SPI 通信时状态被覆写 | 背光直接接 3.3V，不软件控制 |
 | 烧录端口拒绝访问 | `PermissionError(13)` | 串口监控占用了 COM 口 | 关闭 `pio device monitor` 再烧录 |
 | 172×320 画面偏移 | 画面偏左或只显示一半 | ST7789 物理显存 240×320，有效画面需偏移 34 列 | `tft.init(172, 320)` 由 Adafruit 库自动处理 |
-| 串口无输出 | 黑屏且无日志 | `Serial.begin()` 后 USB CDC 未就绪 | 代码已加 `while(!Serial)` 等待 |
+| 串口无输出 | `pio device monitor` 无任何输出 | ESP32-S3 的 COM 口是 **USB Serial/JTAG 控制器**，不是 UART0；Arduino 的 `Serial` 默认映射到 `HWCDCSerial`（USB CDC），与 USB Serial/JTAG 无关 | **必须用 `USBSerial` 而非 `Serial`**：`USBSerial.begin(115200); USBSerial.println(...)` |
 | BMI270 初始化失败 | 串口输出状态码 -2 | I2C 通信失败（接线/地址/共地） | 检查 GPIO6/7 接线，尝试地址 0x69 |
 | 只有一个 3.3V 引脚 | 无法同时给多个设备供电 | Super Mini 引脚少 | 用面包板/一拖三杜邦线并联，总电流 < 100mA |
 
